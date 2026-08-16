@@ -1,9 +1,9 @@
 # Vaurd Helm charts
 
-Helm chart repository for the [Vaurd Agent](https://github.com/hetjagani/vaurd-agent-k8s).
+Helm chart repository for the [Vaurd Agent](https://github.com/Vaurd/vaurd-agent-k8s).
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
 helm search repo vaurd/vaurd-agent --versions
 ```
@@ -20,7 +20,7 @@ helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
 ```
 
 Documentation, values reference and plain Kubernetes manifests live on the
-[`main` branch](https://github.com/hetjagani/vaurd-agent-k8s).
+[`main` branch](https://github.com/Vaurd/vaurd-agent-k8s).
 
 ---
 
