@@ -1,0 +1,125 @@
+{{- /*
+Ingestion pod, running two supervised processes: the HTTP ingestion API that
+accepts events and publishes them to NATS, and the scheduler that matches those
+events to flows. Both consume from NATS work queues, so replicas compete safely
+for messages and can be scaled freely.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion
+spec:
+  type: {{ .Values.ingestion.service.type }}
+  selector:
+    {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "ingestion") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.ingestion.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion
+spec:
+  replicas: {{ .Values.ingestion.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "ingestion") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vaurd-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ingestion
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
+        {{- with .Values.ingestion.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "vaurd-agent.fullname" . }}-ingestion
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Spread replicas across nodes so one node failure cannot take the whole
+      # ingestion tier down.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "ingestion") | nindent 14 }}
+      containers:
+        - name: ingestion
+          image: {{ include "vaurd-agent.image" (dict "ctx" $ "component" "ingestion") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ingestion.service.port }}
+          # Both processes call core for the database key on start-up, so allow
+          # time for core to come up first.
+          startupProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.ingestion.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            - name: agent-data
+              mountPath: /data
+            - name: supervisor-run
+              mountPath: /var/run/supervisor
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "vaurd-agent.volumes" . | nindent 8 }}
+        # supervisord writes its pid file and control socket here.
+        - name: supervisor-run
+          emptyDir: {}
+      {{- with .Values.ingestion.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ingestion.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ingestion.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

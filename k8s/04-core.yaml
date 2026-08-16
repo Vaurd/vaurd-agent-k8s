@@ -1,0 +1,131 @@
+# ---------------------------------------------------------------------------
+# Core — registers the agent with the Vaurd platform, downloads plugins onto
+# the shared volume, ships actions and telemetry, and serves the database
+# encryption key over gRPC to every other component.
+#
+# Core is the first thing that must be running: ingestion, scheduler and
+# evaluator all call it on start-up and will restart until it answers.
+#
+# Keep this at one replica. All replicas would share a single vaurd.db and
+# write to it concurrently, so the rollout strategy is Recreate to guarantee
+# the old pod is gone before the new one starts.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vaurd-agent-core
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: core
+    app.kubernetes.io/part-of: vaurd-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaurd-agent-core
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: core
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: core
+  ports:
+    - name: grpc
+      port: 5001
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaurd-agent-core
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: core
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaurd-agent
+      app.kubernetes.io/component: core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaurd-agent
+        app.kubernetes.io/component: core
+        app.kubernetes.io/part-of: vaurd-agent
+    spec:
+      serviceAccountName: vaurd-agent-core
+      automountServiceAccountToken: false
+      # imagePullSecrets:
+      #   - name: <your-registry-credentials>
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Makes the shared RWX volume group-writable for the agent user.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: core
+          image: vaurd/vaurd-agent-core:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 5001
+          # Core needs to reach the Vaurd platform and register before it can
+          # serve. The startup probe allows up to 2.5 minutes for that.
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            - name: agent-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          secret:
+            secretName: vaurd-agent-config
+            defaultMode: 0440
+        - name: agent-data
+          persistentVolumeClaim:
+            claimName: vaurd-agent-data
+        - name: tmp
+          emptyDir: {}

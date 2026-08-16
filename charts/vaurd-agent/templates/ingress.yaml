@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled }}
+{{- /*
+Exposes the ingestion HTTP API outside the cluster so your systems can post
+events to the agent. Not needed when events are only produced in-cluster.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- $host := required "ingress.host is required when ingress.enabled is true" .Values.ingress.host }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ default (printf "%s-ingestion-tls" (include "vaurd-agent.fullname" .)) .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path }}
+            pathType: {{ .Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "vaurd-agent.fullname" . }}-ingestion
+                port:
+                  name: http
+{{- end }}

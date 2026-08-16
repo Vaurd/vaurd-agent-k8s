@@ -1,0 +1,107 @@
+{{- /*
+Worker pod, running two supervised processes: source-connector, which opens
+connections to your data sources on pod-local gRPC :5004, and the evaluator,
+which consumes queued flow executions and runs them. The evaluator reaches
+source-connector over localhost, so the two cannot be split into separate pods
+and :5004 deliberately has no Service in front of it.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vaurd-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
+        {{- with .Values.worker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "vaurd-agent.fullname" . }}-worker
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      # Let in-flight flow executions finish before the pod is killed.
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "worker") | nindent 14 }}
+      containers:
+        - name: worker
+          image: {{ include "vaurd-agent.image" (dict "ctx" $ "component" "worker") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: connector
+              containerPort: 5004
+          # source-connector binding :5004 is the readiness signal for the pod;
+          # the evaluator has no listening port of its own.
+          startupProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            # Plugin binaries are executed from this volume, not from the
+            # container filesystem, so the root filesystem stays read-only.
+            - name: agent-data
+              mountPath: /data
+            - name: supervisor-run
+              mountPath: /var/run/supervisor
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "vaurd-agent.volumes" . | nindent 8 }}
+        - name: supervisor-run
+          emptyDir: {}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

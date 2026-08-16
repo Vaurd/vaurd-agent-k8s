@@ -1,0 +1,48 @@
+# Publishes the chart whenever a chart change lands on main.
+#
+# chart-releaser packages charts/vaurd-agent, attaches the .tgz to a GitHub
+# Release named vaurd-agent-<version>, and updates index.yaml on the gh-pages
+# branch that GitHub Pages serves.
+#
+# Publishing is keyed on the chart version in Chart.yaml: a version that
+# already has a release is skipped, so re-running this job is harmless and a
+# released version can never be overwritten with different content. To ship a
+# change, bump `version` in charts/vaurd-agent/Chart.yaml — the PR lint job
+# enforces that.
+name: Release Helm Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'charts/**'
+      - '.github/workflows/chart-release.yml'
+  # Allows re-running a failed publish without an empty commit.
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create releases and push to gh-pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.7.0
+        with:
+          charts_dir: charts
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CR_SKIP_EXISTING: true

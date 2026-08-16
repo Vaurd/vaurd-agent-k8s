@@ -1,0 +1,126 @@
+# ---------------------------------------------------------------------------
+# Worker — two processes supervised in one pod:
+#   * source-connector (gRPC :5004) opens connections to your data sources
+#   * evaluator        consumes queued flow executions and runs them
+#
+# The evaluator reaches source-connector over localhost, so the two must stay
+# co-located in the same pod. Port 5004 is pod-internal and deliberately has no
+# Service in front of it.
+#
+# Evaluators compete for a NATS work queue, so each execution is handled by
+# exactly one replica. Scale on queue depth.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vaurd-agent-worker
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: vaurd-agent
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaurd-agent-worker
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaurd-agent
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaurd-agent
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: vaurd-agent
+    spec:
+      serviceAccountName: vaurd-agent-worker
+      automountServiceAccountToken: false
+      # imagePullSecrets:
+      #   - name: <your-registry-credentials>
+      # Give in-flight flow executions a chance to finish before the pod dies.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vaurd-agent
+              app.kubernetes.io/component: worker
+      containers:
+        - name: worker
+          image: vaurd/vaurd-agent-worker:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: connector
+              containerPort: 5004
+          # source-connector binding :5004 is the readiness signal for the pod;
+          # the evaluator has no listening port of its own.
+          startupProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: connector
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Plugin binaries are executed from the shared /data volume, not
+            # from the container filesystem, so the root filesystem stays
+            # read-only.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            - name: agent-data
+              mountPath: /data
+            - name: supervisor-run
+              mountPath: /var/run/supervisor
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          secret:
+            secretName: vaurd-agent-config
+            defaultMode: 0440
+        - name: agent-data
+          persistentVolumeClaim:
+            claimName: vaurd-agent-data
+        - name: supervisor-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

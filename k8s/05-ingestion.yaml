@@ -1,0 +1,142 @@
+# ---------------------------------------------------------------------------
+# Ingestion — two processes supervised in one pod:
+#   * ingestion  (HTTP :5002) accepts events and publishes them to NATS
+#   * scheduler  matches those events to flows and queues flow executions
+#
+# Both are stateless with respect to each other and consume from NATS work
+# queues, so replicas compete safely for messages. Scale freely.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vaurd-agent-ingestion
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: ingestion
+    app.kubernetes.io/part-of: vaurd-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaurd-agent-ingestion
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: ingestion
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: ingestion
+  ports:
+    - name: http
+      port: 5002
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaurd-agent-ingestion
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: ingestion
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaurd-agent
+      app.kubernetes.io/component: ingestion
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaurd-agent
+        app.kubernetes.io/component: ingestion
+        app.kubernetes.io/part-of: vaurd-agent
+    spec:
+      serviceAccountName: vaurd-agent-ingestion
+      automountServiceAccountToken: false
+      # imagePullSecrets:
+      #   - name: <your-registry-credentials>
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so a single node failure cannot take the
+      # whole ingestion tier down.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vaurd-agent
+              app.kubernetes.io/component: ingestion
+      containers:
+        - name: ingestion
+          image: vaurd/vaurd-agent-ingestion:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5002
+          # Both processes call core for the database key on start-up, so allow
+          # time for core to come up first.
+          startupProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthcheck
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            - name: agent-data
+              mountPath: /data
+            - name: supervisor-run
+              mountPath: /var/run/supervisor
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          secret:
+            secretName: vaurd-agent-config
+            defaultMode: 0440
+        - name: agent-data
+          persistentVolumeClaim:
+            claimName: vaurd-agent-data
+        # supervisord writes its pid file and control socket here.
+        - name: supervisor-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

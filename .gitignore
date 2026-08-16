@@ -1,0 +1,12 @@
+# Packaged charts — built by CI, never committed to main.
+*.tgz
+*.tgz.prov
+.cr-release-packages/
+.cr-index/
+
+# Local values files, which usually hold licence tokens and passwords.
+my-values.yaml
+values.local.yaml
+*.local.yaml
+
+.DS_Store

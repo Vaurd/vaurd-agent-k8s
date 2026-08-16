@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Optional — exposes the ingestion HTTP API outside the cluster so your systems
+# can post events to the agent.
+#
+# Uses ingressClassName: nginx — ingress-nginx is the cloud-agnostic ingress
+# controller, so this file works unmodified on any Kubernetes cluster:
+#   * minikube:            minikube addons enable ingress
+#   * kind/k3s/self-hosted: install ingress-nginx from its official manifests
+#     (https://kubernetes.github.io/ingress-nginx/deploy/)
+#   * EKS/GKE/AKS:          install ingress-nginx instead of the cloud-managed
+#                           ingress controller, or change ingressClassName to
+#                           match whichever controller you run.
+#
+# Replace the host, then apply. Skip this file entirely if events are only
+# produced from inside the cluster; the ClusterIP Service in 05-ingestion.yaml
+# is enough for that.
+#
+# TLS is commented out by default so this applies cleanly without a
+# certificate on hand (e.g. minikube). For production, uncomment the
+# cert-manager annotation and the tls: block below, and point host and
+# secretName at your real domain.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vaurd-agent-ingestion
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: ingestion
+    app.kubernetes.io/part-of: vaurd-agent
+  # Uncomment if you use cert-manager to issue the TLS certificate below.
+  # annotations:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  # tls:
+  #   - hosts:
+  #       - <agent.example.com>
+  #     secretName: vaurd-agent-ingestion-tls
+  rules:
+    - host: <agent.example.com>
+      http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: vaurd-agent-ingestion
+                port:
+                  name: http

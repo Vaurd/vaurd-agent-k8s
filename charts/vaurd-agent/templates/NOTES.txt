@@ -1,0 +1,30 @@
+Vaurd Agent {{ .Chart.AppVersion }} is installing into namespace {{ .Release.Namespace }}.
+
+Watch it come up:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Core registers with the Vaurd platform first; ingestion and worker pods may
+restart once or twice while they wait for it. If they keep restarting, start here:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "vaurd-agent.fullname" . }}-core
+
+The ingestion API is reachable in-cluster at:
+
+  http://{{ include "vaurd-agent.fullname" . }}-ingestion.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.ingestion.service.port }}/api/v1
+{{ if .Values.ingress.enabled }}
+and from outside at:
+
+  https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- else }}
+To expose it outside the cluster, set ingress.enabled=true and ingress.host.
+{{- end }}
+{{ if eq .Values.persistence.accessMode "ReadWriteMany" }}
+All components share one ReadWriteMany volume holding the agent database.
+Confirm your storage class supports POSIX file locking before running this in
+production — see the chart README.
+{{- else }}
+persistence.accessMode is {{ .Values.persistence.accessMode }}, so every component must be
+scheduled onto the same node. Set core.nodeSelector, ingestion.nodeSelector and
+worker.nodeSelector to pin them.
+{{- end }}

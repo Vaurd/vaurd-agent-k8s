@@ -1,0 +1,124 @@
+# ---------------------------------------------------------------------------
+# Agent configuration.
+#
+# Every Vaurd Agent binary is configured from a single config.yml. Environment
+# variables are NOT read when the file is passed with --config, so all settings
+# must live in this file. It is stored as a Secret rather than a ConfigMap
+# because it carries your license token and (optionally) a TLS private key.
+#
+# Fill in every <placeholder> before applying.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vaurd-agent-config
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/part-of: vaurd-agent
+type: Opaque
+stringData:
+  config.yml: |
+    app: vaurd-agent
+
+    # gRPC port the core service listens on.
+    port: 5001
+
+    # License token issued by the Vaurd platform. Core exchanges it for the
+    # database encryption key, which it then serves to the other components.
+    license: <your-vaurd-license-token>
+
+    vaurd:
+      # gRPC endpoint of the Vaurd platform (agent manager).
+      manager_url: <manager-host>:5000
+
+      # CA certificate that signed the agent manager's server certificate.
+      # Remove this block only if your manager terminates TLS elsewhere.
+      ca_cert: |
+        -----BEGIN CERTIFICATE-----
+        <vaurd agent manager CA certificate>
+        -----END CERTIFICATE-----
+
+      # Heartbeat to the platform, and how often blocked workers re-check
+      # whether the agent is operational again.
+      ping_interval_seconds: 5
+      status_guard_poll_seconds: 10
+
+    services:
+      storage:
+        # Shared ReadWriteMany volume. All components open the same
+        # /data/vaurd.db and read plugins from /data/plugins.
+        data_dir: /data
+
+      nats:
+        endpoint: nats://vaurd-nats:4222
+        username: natsuser
+        # Must match the password in the vaurd-nats-auth Secret below.
+        password: <nats-password>
+
+      # Every component calls core over gRPC on start-up to fetch the database
+      # encryption key. This is the in-cluster Service address of the core pod.
+      core:
+        address: vaurd-agent-core:5001
+        server_name: vaurd-agent
+
+      # The evaluator always reaches source-connector inside its own pod.
+      # Do not point this at a Service.
+      source_connector:
+        address: localhost:5004
+        server_name: vaurd-agent
+
+    evaluator:
+      # Flows executed in parallel per worker replica.
+      max_concurrency: 10
+
+    # ---------------------------------------------------------------------
+    # In-cluster mTLS (optional).
+    #
+    # Core and source-connector serve plaintext gRPC unless BOTH server_cert
+    # and server_key are set. Generate a matching set with `make generate-certs`
+    # and uncomment all three keys together — setting ca_cert alone makes
+    # clients attempt TLS against plaintext servers and every component will
+    # fail to start.
+    # ---------------------------------------------------------------------
+    # server_cert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   <agent server certificate>
+    #   -----END CERTIFICATE-----
+    # server_key: |
+    #   -----BEGIN RSA PRIVATE KEY-----
+    #   <agent server private key>
+    #   -----END RSA PRIVATE KEY-----
+    # ca_cert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   <agent CA certificate>
+    #   -----END CERTIFICATE-----
+
+    # Data sources the agent connects to. Plugins for these are downloaded to
+    # the shared volume after the agent registers with the platform.
+    sources: []
+    # sources:
+    #   - name: mysql-source
+    #     type: database_mysql
+    #     params:
+    #       host: mysql.databases.svc.cluster.local
+    #       port: 3306
+    #       user: <db-user>
+    #       password: <db-password>
+    #       database: <db-name>
+---
+# Credentials the bundled NATS server starts with. Keep the username and
+# password in sync with services.nats above.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vaurd-nats-auth
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: nats
+    app.kubernetes.io/part-of: vaurd-agent
+type: Opaque
+stringData:
+  username: natsuser
+  password: <nats-password>

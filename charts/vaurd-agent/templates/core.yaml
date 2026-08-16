@@ -1,0 +1,114 @@
+{{- /*
+Core registers the agent with the Vaurd platform, downloads plugins onto the
+shared volume, and serves the database encryption key to the other components.
+It must be running before anything else becomes ready.
+
+Fixed at one replica: it runs singleton background tasks and is the only
+component that may write parts of the shared database. The Recreate strategy
+guarantees the old pod is gone before its replacement starts.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-core
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  type: {{ .Values.core.service.type }}
+  selector:
+    {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "core") | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.core.service.port }}
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-core
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "core") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vaurd-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: core
+      annotations:
+        # Restarts the pod when the rendered configuration changes.
+        checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
+        {{- with .Values.core.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "vaurd-agent.fullname" . }}-core
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: core
+          image: {{ include "vaurd-agent.image" (dict "ctx" $ "component" "core") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.core.service.port }}
+          # Core must reach the platform and register before it can serve;
+          # the startup probe allows up to 2.5 minutes for that.
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.core.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vaurd
+              readOnly: true
+            - name: agent-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "vaurd-agent.volumes" . | nindent 8 }}
+      {{- with .Values.core.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

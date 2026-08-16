@@ -1,0 +1,225 @@
+# Default values for the vaurd-agent chart.
+# Every value below can be overridden with --set or your own values file.
+
+# -- Container images. Each component has its own image; they share a registry
+# and tag by default.
+image:
+  registry: docker.io
+  # Image repositories, relative to the registry above.
+  core: vaurd/vaurd-agent-core
+  ingestion: vaurd/vaurd-agent-ingestion
+  worker: vaurd/vaurd-agent-worker
+  # Applies to all three images unless a component overrides image.tag.
+  tag: v0.1.0
+  pullPolicy: IfNotPresent
+  # Names of Secrets used to pull from a private registry.
+  pullSecrets: []
+  #  - my-registry-credentials
+
+# ---------------------------------------------------------------------------
+# Agent configuration
+#
+# Rendered into a single config.yml and mounted at /etc/vaurd/config.yml in
+# every component. The agent reads settings only from this file — environment
+# variables are ignored — so anything you need to change belongs here.
+# ---------------------------------------------------------------------------
+config:
+  # Bring your own Secret instead of letting the chart render one. It must
+  # contain a `config.yml` key. All other values under `config` are ignored.
+  existingSecret: ""
+
+  # -- License token issued by the Vaurd platform. Required.
+  license: ""
+
+  platform:
+    # -- gRPC address of your Vaurd platform, e.g. manager.vaurd.io:5000. Required.
+    url: ""
+    # -- PEM CA certificate that signed the platform's server certificate.
+    # Leave empty to connect without TLS (not recommended).
+    caCert: ""
+    # Heartbeat interval to the platform, in seconds.
+    pingIntervalSeconds: 5
+    # How often blocked workers re-check whether the agent is operational.
+    statusGuardPollSeconds: 10
+
+  # -- Data sources the agent connects to. Plugins are downloaded to the shared
+  # volume after registration.
+  sources: []
+  #  - name: mysql-source
+  #    type: database_mysql
+  #    params:
+  #      host: mysql.databases.svc.cluster.local
+  #      port: 3306
+  #      user: app
+  #      password: secret
+  #      database: analytics
+
+  # -- Encrypt gRPC between components. All three values must be set together;
+  # setting only caCert makes clients attempt TLS against plaintext servers.
+  # Generate a matching set with `make generate-certs` in the agent repository.
+  tls:
+    serverCert: ""
+    serverKey: ""
+    caCert: ""
+    # Must match the certificate's subject alternative name, not the Service name.
+    serverName: vaurd-agent
+
+# ---------------------------------------------------------------------------
+# Shared storage
+#
+# One volume mounted at /data in all three components, holding the encrypted
+# database and the downloaded plugin binaries. It must be writable by pods on
+# different nodes, hence ReadWriteMany.
+#
+# Requires a storage class with working POSIX file locking — AWS EFS, Azure
+# Files, GCP Filestore and CephFS all qualify. On a single-node cluster you can
+# use ReadWriteOnce instead and pin every component to that node.
+# ---------------------------------------------------------------------------
+persistence:
+  # Use a PersistentVolumeClaim you created yourself.
+  existingClaim: ""
+  # Empty string uses the cluster default storage class.
+  storageClass: ""
+  accessMode: ReadWriteMany
+  size: 10Gi
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+
+# -- Core registers the agent with the platform, downloads plugins, and serves
+# the database key to the other components over gRPC. Always one replica: it
+# runs singleton background tasks and owns the shared database.
+core:
+  image:
+    # Overrides image.tag for this component only.
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 5001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# -- Ingestion accepts events over HTTP and the scheduler matches them to flows.
+# Both consume from NATS work queues, so replicas compete safely for messages.
+ingestion:
+  replicaCount: 2
+  image:
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 5002
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# -- Workers execute flows. The evaluator and source-connector share a pod and
+# talk over localhost:5004, so they cannot be split apart. Scale on queue depth.
+worker:
+  replicaCount: 2
+  image:
+    tag: ""
+  # Flows executed in parallel per replica.
+  maxConcurrency: 10
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Seconds to let in-flight flow executions finish before the pod is killed.
+  terminationGracePeriodSeconds: 60
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# NATS
+#
+# The message bus between ingestion, scheduler and evaluator. The bundled
+# server is fine for evaluation; for production set enabled=false and point
+# externalEndpoint at the official NATS chart or a managed service.
+# ---------------------------------------------------------------------------
+nats:
+  enabled: true
+  image: nats:2.10-alpine
+  auth:
+    username: natsuser
+    # -- Required unless you supply your own config Secret. Used both to start
+    # the bundled server and to connect to it.
+    password: ""
+  persistence:
+    storageClass: ""
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # -- Used when enabled is false, e.g. nats://nats.messaging.svc.cluster.local:4222
+  externalEndpoint: ""
+
+# ---------------------------------------------------------------------------
+# Exposing the ingestion API outside the cluster. Leave disabled if events are
+# only produced from inside the cluster.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  #  cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: ""
+  path: /api/v1
+  pathType: Prefix
+  tls:
+    enabled: true
+    # Defaults to <release>-ingestion-tls when empty.
+    secretName: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Applied to every agent pod. The images run as uid/gid 1000; fsGroup is what
+# makes the shared volume writable for them.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Extra labels applied to every object the chart creates.
+commonLabels: {}
+
+nameOverride: ""
+fullnameOverride: ""

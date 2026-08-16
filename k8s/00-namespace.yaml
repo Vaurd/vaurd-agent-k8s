@@ -1,0 +1,8 @@
+# Namespace that holds every Vaurd Agent component.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/part-of: vaurd-agent

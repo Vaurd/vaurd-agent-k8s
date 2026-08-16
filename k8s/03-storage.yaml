@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Shared agent volume, mounted at /data in every component.
+#
+# It holds the encrypted SQLite database (/data/vaurd.db) and the plugin
+# binaries the platform downloads after registration (/data/plugins). Because
+# all components must see the same files, the access mode is ReadWriteMany.
+#
+# IMPORTANT: SQLite needs working POSIX file locking over the network
+# filesystem backing this claim. AWS EFS, Azure Files and CephFS provide it;
+# many plain NFS servers do not, and a broken lock implementation corrupts the
+# database. Confirm with your storage provider before going to production.
+#
+# Single-node clusters: change accessModes to ReadWriteOnce and pin all pods to
+# one node — see the README for details.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaurd-agent-data
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  accessModes:
+    - ReadWriteMany
+  # Set this to a storage class that supports ReadWriteMany, e.g. efs-sc.
+  # storageClassName: <your-rwx-storage-class>
+  resources:
+    requests:
+      storage: 10Gi

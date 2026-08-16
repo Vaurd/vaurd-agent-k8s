@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# NATS with JetStream — the message bus between ingestion, scheduler and
+# evaluator. Runs as a single-replica StatefulSet with its own persistent
+# volume for the JetStream store.
+#
+# Running NATS in production? Delete this file and use the official NATS Helm
+# chart (https://github.com/nats-io/k8s) or a managed service, then point
+# services.nats.endpoint in 01-config.yaml at it.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaurd-nats
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: nats
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: monitor
+      port: 8222
+      targetPort: monitor
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vaurd-nats
+  namespace: vaurd
+  labels:
+    app.kubernetes.io/name: vaurd-agent
+    app.kubernetes.io/component: nats
+    app.kubernetes.io/part-of: vaurd-agent
+spec:
+  serviceName: vaurd-nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaurd-agent
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaurd-agent
+        app.kubernetes.io/component: nats
+        app.kubernetes.io/part-of: vaurd-agent
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args:
+            - "--jetstream"
+            - "--store_dir=/data"
+            - "--http_port=8222"
+            - "--user=$(NATS_USERNAME)"
+            - "--pass=$(NATS_PASSWORD)"
+          env:
+            - name: NATS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: vaurd-nats-auth
+                  key: username
+            - name: NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vaurd-nats-auth
+                  key: password
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: nats-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+        labels:
+          app.kubernetes.io/name: vaurd-agent
+          app.kubernetes.io/component: nats
+          app.kubernetes.io/part-of: vaurd-agent
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName: <your-default-storage-class>
+        resources:
+          requests:
+            storage: 5Gi

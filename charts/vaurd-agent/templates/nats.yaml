@@ -1,0 +1,124 @@
+{{- if .Values.nats.enabled }}
+{{- /*
+Single-replica NATS with JetStream, the message bus between ingestion,
+scheduler and evaluator. Fine for evaluation; for production set nats.enabled
+to false and point nats.externalEndpoint at the official NATS chart or a
+managed service.
+*/ -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "vaurd-agent.natsSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+type: Opaque
+stringData:
+  username: {{ .Values.nats.auth.username | quote }}
+  password: {{ required "nats.auth.password is required when nats.enabled is true" .Values.nats.auth.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-nats
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "nats") | nindent 4 }}
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: monitor
+      port: 8222
+      targetPort: monitor
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vaurd-agent.fullname" . }}-nats
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vaurd-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  serviceName: {{ include "vaurd-agent.fullname" . }}-nats
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "nats") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vaurd-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: nats
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--jetstream"
+            - "--store_dir=/data"
+            - "--http_port=8222"
+            - "--user=$(NATS_USERNAME)"
+            - "--pass=$(NATS_PASSWORD)"
+          env:
+            - name: NATS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vaurd-agent.natsSecretName" . }}
+                  key: username
+            - name: NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vaurd-agent.natsSecretName" . }}
+                  key: password
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: nats-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+        labels:
+          {{- include "vaurd-agent.labels" . | nindent 10 }}
+          app.kubernetes.io/component: nats
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.nats.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.nats.persistence.size }}
+{{- end }}
