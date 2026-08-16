@@ -6,19 +6,6 @@ to false and point nats.externalEndpoint at the official NATS chart or a
 managed service.
 */ -}}
 apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "vaurd-agent.natsSecretName" . }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "vaurd-agent.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nats
-type: Opaque
-stringData:
-  username: {{ .Values.nats.auth.username | quote }}
-  password: {{ required "nats.auth.password is required when nats.enabled is true" .Values.nats.auth.password | quote }}
----
-apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "vaurd-agent.fullname" . }}-nats
@@ -54,6 +41,11 @@ spec:
       {{- include "vaurd-agent.selectorLabels" (dict "ctx" $ "component" "nats") | nindent 6 }}
   template:
     metadata:
+      annotations:
+        # The credentials arrive as environment variables, which are fixed for
+        # the life of the pod — without this the server would keep serving the
+        # old password while the agent pods roll onto the new one.
+        checksum/nats-secret: {{ include (print $.Template.BasePath "/nats-secret.yaml") . | sha256sum }}
       labels:
         {{- include "vaurd-agent.labels" . | nindent 8 }}
         app.kubernetes.io/component: nats
@@ -76,12 +68,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vaurd-agent.natsSecretName" . }}
-                  key: username
+                  key: {{ include "vaurd-agent.natsSecretUsernameKey" . }}
             - name: NATS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vaurd-agent.natsSecretName" . }}
-                  key: password
+                  key: {{ include "vaurd-agent.natsSecretPasswordKey" . }}
           ports:
             - name: client
               containerPort: 4222

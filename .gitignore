@@ -6,7 +6,10 @@
 
 # Local values files, which usually hold licence tokens and passwords.
 my-values.yaml
+my-values.yml
 values.local.yaml
+values.local.yml
 *.local.yaml
+*.local.yml
 
 .DS_Store

@@ -49,7 +49,6 @@ jobs:
           helm template va charts/vaurd-agent -n vaurd \
             --set config.license=test \
             --set config.platform.url=manager:5000 \
-            --set nats.auth.password=test \
             | kubeconform -strict -summary -kubernetes-version 1.29.0
 
       - name: Validate raw manifests

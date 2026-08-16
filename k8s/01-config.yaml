@@ -71,6 +71,25 @@ stringData:
     evaluator:
       # Flows executed in parallel per worker replica.
       max_concurrency: 10
+      # NATS redelivery limit for a flow execution that fails or times out
+      # (JetStream MaxDeliver); 0 or less means unlimited. Leave commented out
+      # to keep the agent's own default.
+      # max_delivery_attempts: 3
+
+    # Plugins downloaded from the platform after registration. flow_scheduler
+    # is installed whether or not it is listed here, and version defaults to
+    # latest. Omit the key and the agent installs only what it requires.
+    # plugins:
+    #   - name: database_postgres
+    #     version: latest
+
+    # Telemetry event shipping. Every key is optional and independent; the
+    # values below are the agent's own defaults.
+    # telemetry:
+    #   batch_size: 100
+    #   batch_wait_ms: 5000
+    #   stream_ttl_seconds: 60
+    #   max_bytes: 1073741824
 
     # ---------------------------------------------------------------------
     # In-cluster mTLS (optional).

@@ -19,6 +19,13 @@ and from outside at:
 {{- else }}
 To expose it outside the cluster, set ingress.enabled=true and ingress.host.
 {{- end }}
+{{ if and .Values.nats.enabled (not .Values.nats.auth.existingNatsSecret) (not .Values.nats.auth.password) }}
+The bundled NATS server was given a generated password. It lives in the release
+Secret and is reused on every upgrade — you never need to supply it, but you can
+read it back with:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "vaurd-agent.natsSecretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
 {{ if eq .Values.persistence.accessMode "ReadWriteMany" }}
 All components share one ReadWriteMany volume holding the agent database.
 Confirm your storage class supports POSIX file locking before running this in

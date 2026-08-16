@@ -54,9 +54,87 @@ app.kubernetes.io/component: {{ .component }}
 {{- default (printf "%s-config" (include "vaurd-agent.fullname" .)) .Values.config.existingSecret -}}
 {{- end -}}
 
-{{/* Name of the Secret holding NATS credentials for the bundled server. */}}
+{{/*
+Name of the Secret holding the NATS credentials: the one the user brought via
+nats.auth.existingNatsSecret, or the one this chart manages.
+*/}}
 {{- define "vaurd-agent.natsSecretName" -}}
-{{- printf "%s-nats-auth" (include "vaurd-agent.fullname" .) -}}
+{{- default (printf "%s-nats-auth" (include "vaurd-agent.fullname" .)) .Values.nats.auth.existingNatsSecret -}}
+{{- end -}}
+
+{{/* Keys to read the credentials from. Only configurable for a user-supplied Secret. */}}
+{{- define "vaurd-agent.natsSecretUsernameKey" -}}
+{{- if .Values.nats.auth.existingNatsSecret -}}
+{{- default "username" .Values.nats.auth.existingNatsSecretUsernameKey -}}
+{{- else -}}
+username
+{{- end -}}
+{{- end -}}
+
+{{- define "vaurd-agent.natsSecretPasswordKey" -}}
+{{- if .Values.nats.auth.existingNatsSecret -}}
+{{- default "password" .Values.nats.auth.existingNatsSecretPasswordKey -}}
+{{- else -}}
+password
+{{- end -}}
+{{- end -}}
+
+{{/*
+The NATS password in clear text, for rendering into config.yml and into the
+chart-managed Secret. Resolved in this order:
+
+  1. nats.auth.password, when set explicitly.
+  2. The value already stored in the Secret in the cluster — this is what keeps
+     a generated password stable across `helm upgrade`.
+  3. A freshly generated password, when this chart manages the Secret and the
+     bundled server is enabled.
+
+Memoised on .Values so that every call inside one render agrees: config.yml,
+the Secret and the pods' checksum annotation must all see the same password.
+
+Note that step 2 relies on `lookup`, which returns nothing under `helm template`
+and `--dry-run`. A generated password is therefore re-generated on every such
+render; set nats.auth.password explicitly if you render the chart yourself or
+deploy it through a GitOps tool.
+*/}}
+{{- define "vaurd-agent.natsPassword" -}}
+{{- if not (hasKey .Values "natsResolvedPassword") -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "vaurd-agent.natsSecretName" .)) | default dict -}}
+{{- $data := $existing.data | default dict -}}
+{{- $key := include "vaurd-agent.natsSecretPasswordKey" . -}}
+{{- $password := "" -}}
+{{- if .Values.nats.auth.password -}}
+{{- $password = .Values.nats.auth.password -}}
+{{- else if hasKey $data $key -}}
+{{- $password = index $data $key | b64dec -}}
+{{- else if .Values.nats.auth.existingNatsSecret -}}
+{{- $password = required (printf "Secret %q has no %q key, or could not be read (lookup does not work under `helm template`). Set nats.auth.password, or supply your own config Secret with config.existingSecret." .Values.nats.auth.existingNatsSecret $key) "" -}}
+{{- else if .Values.nats.enabled -}}
+{{- $password = randAlphaNum 32 -}}
+{{- else -}}
+{{- $password = required "nats.auth.password is required when nats.enabled is false — the chart only generates a password for the NATS server it deploys itself" "" -}}
+{{- end -}}
+{{- $_ := set .Values "natsResolvedPassword" $password -}}
+{{- end -}}
+{{- .Values.natsResolvedPassword -}}
+{{- end -}}
+
+{{/* The NATS username in clear text, for rendering into config.yml. */}}
+{{- define "vaurd-agent.natsUsername" -}}
+{{- if .Values.nats.auth.existingNatsSecret -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace .Values.nats.auth.existingNatsSecret) | default dict -}}
+{{- $data := $existing.data | default dict -}}
+{{- $key := include "vaurd-agent.natsSecretUsernameKey" . -}}
+{{- if hasKey $data $key -}}
+{{- index $data $key | b64dec -}}
+{{- else -}}
+{{- /* Never fall back to nats.auth.username here: the server reads its username
+       straight from the Secret, so a guess would fail authentication silently. */ -}}
+{{- required (printf "Secret %q has no %q key, or could not be read (lookup does not work under `helm template`). Supply your own config Secret with config.existingSecret if you render the chart offline." .Values.nats.auth.existingNatsSecret $key) "" -}}
+{{- end -}}
+{{- else -}}
+{{- required "nats.auth.username is required" .Values.nats.auth.username -}}
+{{- end -}}
 {{- end -}}
 
 {{/* NATS client endpoint, bundled or external. */}}
