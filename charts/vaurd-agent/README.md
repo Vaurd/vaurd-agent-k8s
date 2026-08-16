@@ -36,7 +36,7 @@ be running before anything else becomes ready.
 The chart is published publicly, so there is nothing to clone:
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
 helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
   --namespace vaurd --create-namespace \

@@ -8,7 +8,7 @@ Prefer Helm? The same deployment is published as a public chart — no clone
 required:
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm install vaurd vaurd/vaurd-agent \
   --version 0.1.0 --namespace vaurd --create-namespace -f my-values.yaml
 ```

@@ -6,7 +6,7 @@ users. This document is for maintainers — users only need the
 [chart README](../charts/vaurd-agent/README.md).
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm install vaurd vaurd/vaurd-agent --version 0.1.0
 ```
 
@@ -54,12 +54,12 @@ git checkout main
 
 **Settings** → **Pages** → source: **Deploy from a branch**, branch `gh-pages`,
 folder `/`. Within a minute the repository is live at
-`https://hetjagani.github.io/vaurd-agent-k8s`.
+`https://vaurd.github.io/vaurd-agent-k8s`.
 
 Or from the CLI:
 
 ```bash
-gh api -X POST repos/hetjagani/vaurd-agent-k8s/pages \
+gh api -X POST repos/Vaurd/vaurd-agent-k8s/pages \
   -f 'source[branch]=gh-pages' -f 'source[path]=/'
 ```
 
@@ -76,7 +76,7 @@ permissions — org-level restrictions do override the workflow.
 
 ### Optional: custom domain
 
-Point a `CNAME` DNS record at `hetjagani.github.io`, then add a `CNAME` file
+Point a `CNAME` DNS record at `vaurd.github.io`, then add a `CNAME` file
 containing the domain to the root of `gh-pages`. Doing this early means you can
 change hosts later without breaking every user's `helm repo add`.
 
@@ -104,7 +104,7 @@ the version — which is the behaviour you want.
 Verify as an outside user once Pages has rebuilt (~1 minute):
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
 helm search repo vaurd/vaurd-agent --versions
 ```
@@ -199,7 +199,7 @@ Artifact Hub is where most people discover charts, and listing is free.
 2. Sign in at [artifacthub.io](https://artifacthub.io) with the GitHub account,
    then **Control Panel** → **Repositories** → **Add repository**:
    - Kind: Helm charts
-   - URL: `https://hetjagani.github.io/vaurd-agent-k8s`
+   - URL: `https://vaurd.github.io/vaurd-agent-k8s`
 
 3. Artifact Hub re-indexes every ~30 minutes. Once the `repositoryID` matches,
    the verified-publisher badge appears.
@@ -219,7 +219,7 @@ annotations:
     - name: Documentation
       url: https://docs.vaurd.io
     - name: Source
-      url: https://github.com/hetjagani/vaurd-agent-k8s
+      url: https://github.com/Vaurd/vaurd-agent-k8s
   artifacthub.io/changes: |
     - kind: added
       description: Initial public release

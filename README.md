@@ -9,7 +9,7 @@ platform and to your data sources; nothing needs to be exposed to the internet
 unless you want to post events to it from outside.
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
 helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
   --namespace vaurd --create-namespace \
@@ -29,7 +29,7 @@ helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
 | [`.github/workflows/`](.github/workflows) | Chart linting on PRs, publishing on merge to `main`. |
 
 Published charts are served from the `gh-pages` branch at
-**https://hetjagani.github.io/vaurd-agent-k8s**.
+**https://vaurd.github.io/vaurd-agent-k8s**.
 
 ## What gets deployed
 
@@ -82,7 +82,7 @@ Both produce the same architecture.
 ### 1. Add the repository
 
 ```bash
-helm repo add vaurd https://hetjagani.github.io/vaurd-agent-k8s
+helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
 helm search repo vaurd/vaurd-agent --versions
 ```
