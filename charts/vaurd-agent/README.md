@@ -38,11 +38,10 @@ The chart is published publicly, so there is nothing to clone:
 ```bash
 helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
-helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
+helm install vaurd vaurd/vaurd-agent --version 0.1.1 \
   --namespace vaurd --create-namespace \
   --set config.license='<your-license-token>' \
   --set config.platform.url='<manager-host>:5000' \
-  --set nats.auth.password='<choose-a-password>' \
   --set persistence.storageClass='<your-rwx-storage-class>'
 ```
 
@@ -74,10 +73,6 @@ config:
         password: <db-password>
         database: <db-name>
 
-nats:
-  auth:
-    password: <choose-a-password>
-
 persistence:
   storageClass: efs-sc
   size: 20Gi
@@ -90,7 +85,7 @@ worker:
 
 ```bash
 helm install vaurd vaurd/vaurd-agent \
-  --version 0.1.0 -n vaurd --create-namespace -f my-values.yaml
+  --version 0.1.1 -n vaurd --create-namespace -f my-values.yaml
 ```
 
 Verify:
@@ -118,22 +113,59 @@ Environment variables are ignored, so everything you need to change belongs in
 | `config.platform.url` | `""` | gRPC address of your Vaurd platform. Required. |
 | `config.platform.caCert` | `""` | PEM CA certificate for the platform's TLS. |
 | `config.sources` | `[]` | Data sources the agent connects to. |
+| `config.plugins` | `[]` | Plugins to download from the platform, by name and version. |
+| `config.telemetry` | `{}` | Telemetry batching and stream limits; see below. |
 | `config.existingSecret` | `""` | Use your own Secret containing a `config.yml` key. |
 | `persistence.storageClass` | `""` | Storage class for the shared volume. |
 | `persistence.accessMode` | `ReadWriteMany` | Set to `ReadWriteOnce` on single-node clusters. |
 | `persistence.existingClaim` | `""` | Use a PVC you created yourself. |
 | `nats.enabled` | `true` | Deploy the bundled NATS server. |
 | `nats.externalEndpoint` | `""` | Required when `nats.enabled` is false. |
-| `nats.auth.password` | `""` | Required unless you supply your own config Secret. |
+| `nats.auth.username` | `natsuser` | Username for the bundled NATS server. |
+| `nats.auth.password` | `""` | Generated when empty; required only for an external NATS server. |
+| `nats.auth.existingNatsSecret` | `""` | Use your own Secret for the NATS credentials. |
 | `ingestion.replicaCount` | `2` | |
 | `worker.replicaCount` | `2` | |
 | `worker.maxConcurrency` | `10` | Flows executed in parallel per worker replica. |
+| `worker.maxDeliveryAttempts` | `""` | NATS redelivery limit for a failed flow execution. |
 | `ingress.enabled` | `false` | Expose the ingestion API outside the cluster. |
 | `image.tag` | `v0.1.0` | Applies to all three images. |
 | `image.pullSecrets` | `[]` | Names of Secrets for a private registry. |
 
-Run `helm show values vaurd/vaurd-agent --version 0.1.0` for the full
+Run `helm show values vaurd/vaurd-agent --version 0.1.1` for the full
 annotated list.
+
+### Plugins and telemetry
+
+`config.plugins`, `config.telemetry` and `worker.maxDeliveryAttempts` are
+written to `config.yml` **only when you set them**. Left at their defaults the
+keys are absent from the file entirely, and the agent applies its own defaults —
+so you never have to restate a value just to keep it.
+
+```yaml
+config:
+  # Downloaded from the platform after registration. flow_scheduler is
+  # installed whether or not you list it; version defaults to latest.
+  plugins:
+    - name: database_postgres
+      version: latest
+
+  # Each key is independent — set one and the other three keep the agent's
+  # defaults, shown here for reference.
+  telemetry:
+    batchSize: 100          # events per batch shipped to the platform
+    batchWaitMs: 5000       # flush a partial batch after this long
+    streamTtlSeconds: 60    # how long an event lives in the NATS stream
+    maxBytes: 1073741824    # stream size cap before old messages are evicted
+
+worker:
+  # JetStream MaxDeliver: redelivery attempts for a flow execution that fails
+  # or times out. 0 or less means unlimited.
+  maxDeliveryAttempts: 3
+```
+
+A misspelled key under `config.telemetry` fails the render rather than being
+silently dropped.
 
 ## Storage
 
@@ -176,7 +208,7 @@ delivered to exactly one consumer. Scale them freely:
 
 ```bash
 helm upgrade vaurd vaurd/vaurd-agent \
-  --version 0.1.0 -n vaurd -f my-values.yaml --set worker.replicaCount=8
+  --version 0.1.1 -n vaurd -f my-values.yaml --set worker.replicaCount=8
 ```
 
 Core is always deployed with **one replica**. It runs singleton background tasks
@@ -210,6 +242,52 @@ every component will fail to start. Leave `config.tls.serverName` at
 `vaurd-agent`; it must match the certificate's subject alternative name, not the
 Kubernetes Service name.
 
+## NATS credentials
+
+You do not have to invent a password for the bundled NATS server. Leave
+`nats.auth.password` empty and the chart generates one on install, keeps it in
+the `<release>-nats-auth` Secret, and reuses that same value on every upgrade —
+it reads the Secret back out of the cluster rather than rolling a new password
+each time. Read it if you ever need it:
+
+```bash
+kubectl -n vaurd get secret vaurd-vaurd-agent-nats-auth \
+  -o jsonpath='{.data.password}' | base64 -d
+```
+
+The agent itself takes every setting from its mounted `config.yml` — it does not
+resolve Secret references — so the chart renders the same credentials into that
+file, which is a Secret too.
+
+**Set `nats.auth.password` explicitly if you render the chart yourself**
+(`helm template`, or a GitOps tool such as Argo CD that renders offline).
+Reusing the existing password depends on reading the cluster, which those paths
+cannot do, so a generated password would differ on every render and roll the
+pods each sync.
+
+### Bringing your own Secret
+
+```yaml
+nats:
+  auth:
+    existingNatsSecret: my-nats-credentials
+    # Defaults, override if your Secret uses different keys.
+    existingNatsSecretUsernameKey: username
+    existingNatsSecretPasswordKey: password
+```
+
+Nothing is generated, and the chart creates no Secret of its own. It still has
+to read the credentials out of that Secret to render `config.yml`, so this
+combination needs a live cluster; if you render offline, supply the whole config
+yourself with `config.existingSecret` as well.
+
+### Rotating the password
+
+Set a new `nats.auth.password` (or update your own Secret) and run
+`helm upgrade`. The NATS server and all three agent components restart, because
+the credentials reach them through checksummed Secrets rather than being re-read
+at runtime. Expect a few seconds of message-delivery pause while they roll.
+
 ## Using your own NATS
 
 The bundled NATS is a single replica, suitable for evaluation. For production,
@@ -224,6 +302,10 @@ nats:
     username: <nats-user>
     password: <nats-password>
 ```
+
+Credentials are required here — an external server's password is not the
+chart's to choose, so nothing is generated. `existingNatsSecret` works for this
+case too, and keeps the password out of your values file.
 
 ## Uninstall
 
@@ -254,5 +336,6 @@ to the platform is allowed.
 
 ## Publishing this chart
 
-Maintainers: see [HOSTING.md](../../docs/HOSTING.md) for how the chart is
-packaged, signed and published to the chart repository.
+Maintainers: see [RELEASE.md](../../docs/RELEASE.md) for the pre-release
+checklist, the chart versioning rules and how a version reaches the chart
+repository.

@@ -11,11 +11,10 @@ unless you want to post events to it from outside.
 ```bash
 helm repo add vaurd https://vaurd.github.io/vaurd-agent-k8s
 helm repo update
-helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
+helm install vaurd vaurd/vaurd-agent --version 0.1.1 \
   --namespace vaurd --create-namespace \
   --set config.license='<your-license-token>' \
   --set config.platform.url='<manager-host>:5000' \
-  --set nats.auth.password='<choose-a-password>' \
   --set persistence.storageClass='<your-rwx-storage-class>'
 ```
 
@@ -25,8 +24,6 @@ helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
 |---|---|
 | [`charts/vaurd-agent`](charts/vaurd-agent) | The Helm chart. Source of truth for the published chart. |
 | [`k8s/`](k8s) | Plain, numbered YAML manifests — the same deployment without Helm. |
-| [`docs/HOSTING.md`](docs/HOSTING.md) | Maintainer docs: how the chart is packaged, released and listed. |
-| [`.github/workflows/`](.github/workflows) | Chart linting on PRs, publishing on merge to `main`. |
 
 Published charts are served from the `gh-pages` branch at
 **https://vaurd.github.io/vaurd-agent-k8s**.
@@ -112,10 +109,6 @@ config:
         password: <db-password>
         database: <db-name>
 
-nats:
-  auth:
-    password: <choose-a-password>
-
 persistence:
   storageClass: efs-sc
   size: 20Gi
@@ -129,13 +122,19 @@ worker:
 ### 3. Install
 
 ```bash
-helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
+helm install vaurd vaurd/vaurd-agent --version 0.1.1 \
   --namespace vaurd --create-namespace \
   -f my-values.yaml
 ```
 
 Always pass `--version`. An unpinned install picks up whatever is newest at the
 time, which makes deployments non-reproducible.
+
+There is no NATS password to choose: the chart generates one for the bundled
+server, stores it in the `<release>-nats-auth` Secret and reuses it on every
+upgrade. Set `nats.auth.password` yourself only when you point the agent at an
+external NATS server, or when you render the chart offline — see
+[NATS credentials](charts/vaurd-agent/README.md#nats-credentials).
 
 ### 4. Verify
 
@@ -147,7 +146,7 @@ kubectl -n vaurd logs deploy/vaurd-vaurd-agent-core
 ### Upgrading and rolling back
 
 ```bash
-helm upgrade vaurd vaurd/vaurd-agent --version 0.2.0 -n vaurd -f my-values.yaml
+helm upgrade vaurd vaurd/vaurd-agent --version 0.1.1 -n vaurd -f my-values.yaml
 helm history vaurd -n vaurd
 helm rollback vaurd 1 -n vaurd
 ```
@@ -160,7 +159,7 @@ kubectl -n vaurd delete pvc -l app.kubernetes.io/instance=vaurd   # data is NOT 
 ```
 
 Full value reference: [`charts/vaurd-agent/README.md`](charts/vaurd-agent/README.md),
-or `helm show values vaurd/vaurd-agent --version 0.1.0`.
+or `helm show values vaurd/vaurd-agent --version 0.1.1`.
 
 ---
 
@@ -289,11 +288,10 @@ Set `ingress.host` to a `nip.io` name pointing at your cluster IP, which needs
 no DNS setup — e.g. `vaurd.$(minikube ip).nip.io`:
 
 ```bash
-helm install vaurd vaurd/vaurd-agent --version 0.1.0 \
+helm install vaurd vaurd/vaurd-agent --version 0.1.1 \
   -n vaurd --create-namespace -f minikube-values.yaml \
   --set config.license='<token>' \
   --set config.platform.url='<manager-host>:5000' \
-  --set nats.auth.password='<password>' \
   --set ingress.host="vaurd.$(minikube ip).nip.io"
 ```
 
@@ -366,5 +364,5 @@ deploy/vaurd-agent-ingestion deploy/vaurd-agent-worker`.
 
 Chart changes go in `charts/vaurd-agent`. Bump `version` in `Chart.yaml` in the
 same pull request — CI enforces it, and merging to `main` publishes the new
-version automatically. See [`docs/HOSTING.md`](docs/HOSTING.md) for the release
-process.
+version automatically. See [`docs/RELEASE.md`](docs/RELEASE.md) for the
+pre-release checklist and versioning rules.

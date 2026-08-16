@@ -2,9 +2,9 @@ apiVersion: v2
 name: vaurd-agent
 description: Vaurd Agent — connects your data sources to the Vaurd platform and executes flows inside your own network.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
-home: https://vaurd.io
+home: https://vaurd.com
 sources:
   - https://github.com/Vaurd/vaurd-agent
 keywords:
@@ -13,4 +13,14 @@ keywords:
   - data-quality
 maintainers:
   - name: Vaurd
-    url: https://vaurd.io
+    url: https://vaurd.com
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: NATS password is generated when nats.auth.password is unset, and reused across upgrades
+    - kind: added
+      description: nats.auth.existingNatsSecret for supplying your own NATS credentials Secret
+    - kind: changed
+      description: nats.auth.password is no longer required for the bundled NATS server
+    - kind: added
+      description: config.plugins, config.telemetry and worker.maxDeliveryAttempts, each written to config.yml only when set

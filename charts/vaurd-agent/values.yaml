@@ -33,7 +33,7 @@ config:
 
   platform:
     # -- gRPC address of your Vaurd platform, e.g. manager.vaurd.io:5000. Required.
-    url: ""
+    url: "am.vaurd.com:5000"
     # -- PEM CA certificate that signed the platform's server certificate.
     # Leave empty to connect without TLS (not recommended).
     caCert: ""
@@ -53,6 +53,29 @@ config:
   #      user: app
   #      password: secret
   #      database: analytics
+
+  # -- Plugins the agent downloads from the platform and keeps up to date.
+  # Each entry takes a name and an optional version, "latest" when omitted.
+  # Left empty the key is not written at all, and the agent installs only what
+  # it requires — flow_scheduler is always installed whether listed or not.
+  plugins: []
+  #  - name: flow_scheduler
+  #    version: latest
+  #  - name: database_postgres
+  #    version: latest
+
+  # -- Telemetry event shipping. Every key is optional: those you leave out are
+  # not written to config.yml, so the agent applies its own default. The
+  # defaults are shown below — uncomment only what you want to change.
+  telemetry: {}
+  #  # Events batched together before being shipped to the platform.
+  #  batchSize: 100
+  #  # Milliseconds to wait before flushing a batch that is not yet full.
+  #  batchWaitMs: 5000
+  #  # Seconds an event stays in the NATS telemetry stream.
+  #  streamTtlSeconds: 60
+  #  # Bytes the telemetry stream may hold before old messages are evicted.
+  #  maxBytes: 1073741824
 
   # -- Encrypt gRPC between components. All three values must be set together;
   # setting only caCert makes clients attempt TLS against plaintext servers.
@@ -138,6 +161,10 @@ worker:
     tag: ""
   # Flows executed in parallel per replica.
   maxConcurrency: 10
+  # -- How many times NATS redelivers a flow execution that fails or times out
+  # (JetStream MaxDeliver). 0 or less means unlimited. Left empty the key is
+  # not written and the agent's own default applies.
+  maxDeliveryAttempts: ""
   resources:
     requests:
       cpu: 200m
@@ -164,9 +191,33 @@ nats:
   image: nats:2.10-alpine
   auth:
     username: natsuser
-    # -- Required unless you supply your own config Secret. Used both to start
-    # the bundled server and to connect to it.
+    # -- Password used both to start the bundled server and to connect to it.
+    #
+    # Leave empty and the chart generates a random one on install, stores it in
+    # its own Secret, and reuses that value on every upgrade — so you never have
+    # to invent or keep a password for the bundled server.
+    #
+    # Two cases still need it set explicitly:
+    #   * nats.enabled=false — the external server's password is not the
+    #     chart's to choose.
+    #   * You render the chart yourself (`helm template`) or deploy it through a
+    #     GitOps tool. Reuse relies on reading the Secret back from the cluster,
+    #     which those paths cannot do, so a generated password would change on
+    #     every render.
     password: ""
+
+    # -- Bring your own Secret with the NATS credentials instead of letting the
+    # chart manage one. Nothing is generated when this is set.
+    #
+    # The agent reads its settings only from config.yml, so the chart has to
+    # read this Secret back out of the cluster to render the credentials into
+    # that file. Under `helm template` it cannot, and the render fails with a
+    # message saying so — pair it with config.existingSecret if you render
+    # offline.
+    existingNatsSecret: ""
+    # Keys to read from that Secret. The bundled server reads the same two.
+    existingNatsSecretUsernameKey: username
+    existingNatsSecretPasswordKey: password
   persistence:
     storageClass: ""
     size: 5Gi

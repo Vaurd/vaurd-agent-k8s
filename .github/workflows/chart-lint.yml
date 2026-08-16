@@ -32,7 +32,11 @@ jobs:
           python-version: '3.x'
 
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.7.0
+        # Keep this at v2.8.0 or newer. Earlier versions install yamale 4.0.4,
+        # whose schema parser calls ast.Num — removed in Python 3.14, which is
+        # what `python-version: 3.x` now resolves to, so Chart.yaml validation
+        # crashes before it lints anything.
+        uses: helm/chart-testing-action@v2.8.0
 
       - name: Lint chart (fails if the version was not bumped)
         run: |
@@ -49,7 +53,6 @@ jobs:
           helm template va charts/vaurd-agent -n vaurd \
             --set config.license=test \
             --set config.platform.url=manager:5000 \
-            --set nats.auth.password=test \
             | kubeconform -strict -summary -kubernetes-version 1.29.0
 
       - name: Validate raw manifests
