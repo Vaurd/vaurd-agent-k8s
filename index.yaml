@@ -1,0 +1,25 @@
+apiVersion: v1
+entries:
+  vaurd-agent:
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2026-08-16T21:54:05.42710855Z"
+    description: Vaurd Agent — connects your data sources to the Vaurd platform and
+      executes flows inside your own network.
+    digest: 48798a2db8050fee0c9b9d2e5b049ec308f03c33e8bd224e6062e5279c32072f
+    home: https://vaurd.io
+    keywords:
+    - vaurd
+    - agent
+    - data-quality
+    maintainers:
+    - name: Vaurd
+      url: https://vaurd.io
+    name: vaurd-agent
+    sources:
+    - https://github.com/Vaurd/vaurd-agent
+    type: application
+    urls:
+    - https://github.com/Vaurd/vaurd-agent-k8s/releases/download/vaurd-agent-0.1.0/vaurd-agent-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-08-16T21:54:05.427115463Z"
