@@ -63,12 +63,16 @@ gh api -X POST repos/hetjagani/vaurd-agent-k8s/pages \
   -f 'source[branch]=gh-pages' -f 'source[path]=/'
 ```
 
-### Allow Actions to publish
+### Actions permissions
 
-**Settings** → **Actions** → **General** → **Workflow permissions** →
-**Read and write permissions**. The release workflow also declares
-`permissions: contents: write` explicitly, but the repository-level setting
-must not be more restrictive.
+Nothing to change. The repository default for `GITHUB_TOKEN` is read-only,
+which is the safer setting and can stay that way: the release workflow
+declares `permissions: contents: write` itself, and an explicit `permissions:`
+block in a workflow takes precedence over the repository default.
+
+If a release ever fails with a 403 pushing to `gh-pages` or creating a
+release, check whether an *organisation* policy is capping workflow
+permissions — org-level restrictions do override the workflow.
 
 ### Optional: custom domain
 
